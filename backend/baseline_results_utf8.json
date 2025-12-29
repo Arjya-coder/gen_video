@@ -1,0 +1,17 @@
+﻿[
+  {
+    "job_id": "74556fac-0559-4ed5-add7-919e40e974b8",
+    "topic": "The Science of Caffeine",
+    "status": "QUEUED",
+    "auditor_decision": "NO-GO",
+    "reason": "N/A"
+  },
+  {
+    "job_id": "1512eaf5-908c-4f30-9692-3ee510af8743",
+    "topic": "The Psychology of Procrastination",
+    "status": "FAILED",
+    "auditor_decision": "NO-GO",
+    "reason": "Quality Audit Failed: Pacing feels uniform for more than 4 seconds"
+  }
+]
+

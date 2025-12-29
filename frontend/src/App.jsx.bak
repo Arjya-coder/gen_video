@@ -1,0 +1,292 @@
+import { useState, useEffect, useRef } from 'react';
+import './index.css';
+
+function App() {
+    const [formData, setFormData] = useState({
+        topic: '',
+        duration_seconds: 30,
+        tone: 'informative',
+    });
+    const [activeTab, setActiveTab] = useState('generate');
+    const [pollInterval, setPollInterval] = useState(null);
+    const [response, setResponse] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [isMarked, setIsMarked] = useState(false);
+
+    // Preview State
+    const [currentTime, setCurrentTime] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const timerRef = useRef(null);
+
+    const handleGenerate = async () => {
+        setLoading(true);
+        setResponse(null);
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setIsMarked(false);
+        try {
+            const res = await fetch('http://localhost:5001/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData),
+            });
+            const data = await res.json();
+            setResponse(data);
+        } catch (error) {
+            setResponse({ error: error.message });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const checkStatus = async () => {
+        const jobId = response?.job_id || response?.id;
+        if (!jobId) return;
+        try {
+            const res = await fetch(`http://localhost:5001/api/status/${jobId}`);
+            const data = await res.json();
+            setResponse(data);
+
+            // Also check if it's marked
+            const markRes = await fetch(`http://localhost:5001/api/is-marked/${jobId}`);
+            const markData = await markRes.json();
+            setIsMarked(markData.isMarked);
+        } catch (error) {
+            setResponse({ error: error.message });
+        }
+    };
+
+    const toggleMark = async () => {
+        const jobId = response?.job_id || response?.id;
+        if (!jobId) return;
+
+        try {
+            const endpoint = isMarked ? 'unmark' : 'mark';
+            await fetch(`http://localhost:5001/api/${endpoint}/${jobId}`, { method: 'POST' });
+            setIsMarked(!isMarked);
+        } catch (error) {
+            console.error('Failed to toggle mark:', error);
+        }
+    };
+
+    const handleChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : (name === 'duration_seconds' ? parseInt(value) : value)
+        }));
+    };
+
+    // Caption Preview Logic
+    useEffect(() => {
+        if (isPlaying) {
+            const interval = 50;
+            timerRef.current = setInterval(() => {
+                setCurrentTime(prev => {
+                    const next = prev + interval;
+                    if (response?.result?.audio?.duration_ms && next > response.result.audio.duration_ms) {
+                        setIsPlaying(false);
+                        return 0;
+                    }
+                    return next;
+                });
+            }, interval);
+        } else {
+            clearInterval(timerRef.current);
+        }
+        return () => clearInterval(timerRef.current);
+    }, [isPlaying, response]);
+
+    const togglePreview = () => setIsPlaying(!isPlaying);
+
+    const getCurrentCaption = () => {
+        if (!response?.result?.captions?.timeline) return null;
+        return response.result.captions.timeline.find(
+            cap => currentTime >= cap.start_ms && currentTime <= cap.end_ms
+        );
+    };
+
+    const activeCaption = getCurrentCaption();
+
+    return (
+        <div className="container">
+            <h1>Viral Faceless AI <small>Nebula Engine v1.0</small></h1>
+
+            <div className="card">
+                <div className="form-group">
+                    <label>Topic</label>
+                    <textarea
+                        name="topic"
+                        placeholder="What is your video about?"
+                        value={formData.topic}
+                        onChange={handleChange}
+                    />
+                </div>
+
+                <div className="form-row">
+                    <div className="form-group">
+                        <label>Target Duration: {formData.duration_seconds}s</label>
+                        <input
+                            type="range"
+                            name="duration_seconds"
+                            min="15"
+                            max="60"
+                            step="5"
+                            value={formData.duration_seconds}
+                            onChange={handleChange}
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label>Vibe & Tone</label>
+                        <select name="tone" value={formData.tone} onChange={handleChange}>
+                            <option value="informative">💎 Informative & Clear</option>
+                            <option value="dramatic">🎬 Dramatic & Intense</option>
+                            <option value="motivational">🔥 Motivational & Bold</option>
+                            <option value="neutral">⚖️ Balanced & Neutral</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div className="form-group-checkbox">
+                    <label>
+                        <input
+                            type="checkbox"
+                            name="dry_run"
+                            checked={formData.dry_run}
+                            onChange={handleChange}
+                        /> Dry-run Audio (Fast iteration)
+                    </label>
+                </div>
+
+                <button onClick={handleGenerate} disabled={loading || !formData.topic}>
+                    {loading ? 'Initiating Synthesis...' : 'Generate Viral Short'}
+                </button>
+            </div>
+
+            {response && (
+                <div className="response-box">
+                    <div className="response-header">
+                        <h3>System Status: <span className={`badge ${response.status}`}>{response.status.replace(/_/g, ' ')}</span></h3>
+                        <div className="header-actions">
+                            <button onClick={toggleMark} className={`mark-btn ${isMarked ? 'active' : ''}`}>
+                                {isMarked ? '🌟 STARRED' : '⭐ STAR'}
+                            </button>
+                            <button onClick={checkStatus} className="refresh-btn">SYNC STATUS</button>
+                        </div>
+                    </div>
+
+                    <p><strong>Job ID:</strong> {response.job_id || response.id}</p>
+
+                    {response.status !== 'COMPLETED' && response.status !== 'FAILED' && response.progress !== undefined && (
+                        <div className="progress-container">
+                            <div className="progress-info">
+                                <span>Engine Processing...</span>
+                                <span>{response.progress}%</span>
+                            </div>
+                            <div className="progress-bar-bg">
+                                <div className="progress-bar-fill" style={{ width: `${response.progress}%` }}></div>
+                            </div>
+                            {response.eta_seconds > 0 && (
+                                <p className="eta-text">ETA: {response.eta_seconds}s</p>
+                            )}
+                        </div>
+                    )}
+
+                    {response.status === 'FAILED' && (
+                        <div className="error-msg">
+                            <strong>Failure Reasons:</strong>
+                            <ul>
+                                {response.result?.validationErrors?.map((err, i) => <li key={i}>{err}</li>) || <li>{response.result?.error}</li>}
+                            </ul>
+                        </div>
+                    )}
+
+                    {(response.status === 'VISUALS_READY' || response.status === 'CAPTIONS_READY' || response.status === 'AUDIO_READY') && response.result && (
+                        <div className="captions-display">
+                            <div className="stats-row">
+                                <span className="stat-item">⏱ {(response.result.audio?.duration_ms / 1000).toFixed(1)}s</span>
+                                <span className="stat-item">📝 {response.result.script?.split(' ').length} words</span>
+                                {response.result.visuals && <span className="stat-item">🎬 {response.result.visuals.metadata.clip_count} clips</span>}
+                            </div>
+
+                            <div className="preview-container">
+                                <div className="preview-screen">
+                                    <div className="time-overlay">{(currentTime / 1000).toFixed(1)}s</div>
+                                    {activeCaption && (
+                                        <div className="caption-text">
+                                            {activeCaption.text.split(' ').map((word, idx) => (
+                                                <span
+                                                    key={idx}
+                                                    className={activeCaption.emphasis_indices.includes(idx) ? 'highlight' : ''}
+                                                >
+                                                    {word}{' '}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <div className="playback-overlay-info">
+                                        <span>{Math.floor(response.result.audio.duration_ms / 1000)}s</span>
+                                    </div>
+                                </div>
+                                <button onClick={togglePreview} className="preview-btn">
+                                    {isPlaying ? '⏹ PAUSE PREVIEW' : '▶ START SYNC PREVIEW'}
+                                </button>
+                            </div>
+
+                            {response.result.visuals && (
+                                <div className="visual-timeline">
+                                    <h4>Visual Timeline</h4>
+                                    <div className="timeline-scroll">
+                                        {response.result.visuals.timeline.map((clip, idx) => (
+                                            <div key={idx} className="timeline-clip">
+                                                <div className="clip-meta">
+                                                    <span className="clip-range">{(clip.start_ms / 1000).toFixed(1)}s - {(clip.end_ms / 1000).toFixed(1)}s</span>
+                                                    <span className="clip-keyword">#{clip.keyword}</span>
+                                                </div>
+                                                <div className="clip-id">{clip.clip_id} ({clip.source})</div>
+                                                <div className="clip-transforms">
+                                                    <span className="transform-badge zoom">Zoom: {clip.transform.zoom}x</span>
+                                                    <span className="transform-badge pan">Pan: {clip.transform.pan}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {response.status === 'COMPLETED' && response.result?.video_path && (
+                        <div className="video-result-container">
+                            <h2>🎬 Video Ready!</h2>
+                            <video
+                                className="video-player"
+                                controls
+                                src={`http://localhost:5001${response.result.video_path}`}
+                            >
+                                Your browser does not support the video tag.
+                            </video>
+                            <div className="download-actions">
+                                <a
+                                    href={`http://localhost:5001${response.result.video_path}`}
+                                    download={`video_${response.job_id || response.id}.mp4`}
+                                    className="download-link"
+                                >
+                                    📥 Download MP4
+                                </a>
+                            </div>
+                        </div>
+                    )}
+
+                    <details>
+                        <summary>Raw JSON</summary>
+                        <pre>{JSON.stringify(response, null, 2)}</pre>
+                    </details>
+                </div>
+            )}
+        </div>
+    );
+}
+
+export default App;
